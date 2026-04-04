@@ -1,0 +1,78 @@
+import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { UserRole } from '@prisma/client';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
+import { AddOrderItemsDto } from './dto/add-order-items.dto';
+import { CreateOrderDto } from './dto/create-order.dto';
+import { OrdersService } from './orders.service';
+
+@ApiTags('Orders')
+@ApiBearerAuth()
+@Roles(UserRole.ADMIN, UserRole.OPERATIONS, UserRole.FINANCIAL)
+@Controller('orders')
+export class OrdersController {
+  constructor(private readonly ordersService: OrdersService) {}
+
+  @ApiOperation({ summary: 'Listar pedidos' })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista de pedidos retornada com sucesso.',
+  })
+  @ApiResponse({ status: 401, description: 'Nao autenticado.' })
+  @ApiResponse({ status: 403, description: 'Sem permissao.' })
+  @Get()
+  async findAll() {
+    return this.ordersService.findAll();
+  }
+
+  @ApiOperation({ summary: 'Buscar pedido por ID' })
+  @ApiResponse({ status: 200, description: 'Pedido encontrado com sucesso.' })
+  @ApiResponse({ status: 401, description: 'Nao autenticado.' })
+  @ApiResponse({ status: 403, description: 'Sem permissao.' })
+  @ApiResponse({ status: 404, description: 'Pedido nao encontrado.' })
+  @Get(':id')
+  async findById(@Param('id') id: string) {
+    return this.ordersService.findById(id);
+  }
+
+  @ApiOperation({ summary: 'Criar pedido' })
+  @ApiResponse({ status: 201, description: 'Pedido criado com sucesso.' })
+  @ApiResponse({ status: 400, description: 'Dados invalidos para criacao.' })
+  @ApiResponse({ status: 401, description: 'Nao autenticado.' })
+  @ApiResponse({ status: 403, description: 'Sem permissao.' })
+  @ApiResponse({ status: 404, description: 'Cliente nao encontrado.' })
+  @Post()
+  async create(
+    @Body() dto: CreateOrderDto,
+    @Req() req: { user: AuthenticatedUser },
+  ) {
+    return this.ordersService.create(dto, req.user);
+  }
+
+  @ApiOperation({ summary: 'Adicionar itens ao pedido' })
+  @ApiResponse({
+    status: 201,
+    description: 'Itens adicionados e total do pedido recalculado com sucesso.',
+  })
+  @ApiResponse({ status: 400, description: 'Dados invalidos para os itens.' })
+  @ApiResponse({ status: 401, description: 'Nao autenticado.' })
+  @ApiResponse({ status: 403, description: 'Sem permissao.' })
+  @ApiResponse({
+    status: 404,
+    description: 'Pedido ou produto nao encontrado.',
+  })
+  @Post(':id/items')
+  async addItems(
+    @Param('id') id: string,
+    @Body() dto: AddOrderItemsDto,
+    @Req() req: { user: AuthenticatedUser },
+  ) {
+    return this.ordersService.addItems(id, dto, req.user);
+  }
+}

@@ -11,6 +11,7 @@ import { ClientsModule } from './modules/clients/clients.module';
 import { PrismaModule } from './modules/prisma/prisma.module';
 import { ProductsModule } from './modules/products/products.module';
 import { UsersModule } from './modules/users/users.module';
+import { OrdersModule } from './modules/orders/orders.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { UsersModule } from './modules/users/users.module';
     UsersModule,
     ClientsModule,
     ProductsModule,
+    OrdersModule,
   ],
   controllers: [AppController],
   providers: [
