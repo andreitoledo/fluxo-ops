@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import * as bcrypt from 'bcrypt';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, UserRole } from '@prisma/client';
 
 const connectionString = process.env.DATABASE_URL;
 
@@ -17,15 +17,15 @@ const prisma = new PrismaClient({ adapter });
 async function main() {
   const senhaHash = await bcrypt.hash('123456', 10);
 
-  await prisma.usuario.upsert({
+  await prisma.user.upsert({
     where: { email: 'admin@fluxoops.local' },
     update: {},
     create: {
-      nome: 'Administrador',
+      name: 'Administrador',
       email: 'admin@fluxoops.local',
-      senhaHash,
-      perfil: 'ADMIN',
-      ativo: true,
+      passwordHash: senhaHash,
+      role: UserRole.ADMIN,
+      isActive: true,
     },
   });
 

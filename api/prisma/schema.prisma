@@ -6,15 +6,210 @@ datasource db {
   provider = "postgresql"
 }
 
-model Usuario {
-  id            String   @id @default(uuid()) @db.Uuid
-  nome          String   @map("nome")
-  email         String   @unique @map("email")
-  senhaHash     String   @map("senha_hash")
-  perfil        String   @map("perfil")
-  ativo         Boolean  @default(true) @map("ativo")
-  criadoEm      DateTime @default(now()) @map("criado_em")
-  atualizadoEm  DateTime @updatedAt @map("atualizado_em")
+enum UserRole {
+  ADMIN
+  OPERATIONS
+  FINANCIAL
+  PRODUCTION
+}
+
+enum OrderStatus {
+  DRAFT
+  WAITING_PAYMENT
+  PAYMENT_APPROVED
+  IN_PRODUCTION
+  READY_TO_SHIP
+  SHIPPED
+  COMPLETED
+  CANCELED
+}
+
+enum PaymentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AuditEntityType {
+  USER
+  CLIENT
+  PRODUCT
+  ORDER
+  ORDER_ITEM
+  PAYMENT_APPROVAL
+}
+
+model User {
+  id                  String               @id @default(uuid()) @db.Uuid
+  name                String               @map("nome")
+  email               String               @unique @map("email")
+  passwordHash        String               @map("senha_hash")
+  role                UserRole             @map("perfil")
+  isActive            Boolean              @default(true) @map("ativo")
+  createdAt           DateTime             @default(now()) @map("criado_em")
+  updatedAt           DateTime             @updatedAt @map("atualizado_em")
+
+  createdOrders       Order[]              @relation("OrderCreatedBy")
+  statusHistory       OrderStatusHistory[]
+  paymentApprovals    PaymentApproval[]
+  auditLogs           AuditLog[]
 
   @@map("usuarios")
+  @@index([email], map: "idx_usuarios_email")
+  @@index([role], map: "idx_usuarios_perfil")
+  @@index([isActive], map: "idx_usuarios_ativo")
+}
+
+model Client {
+  id                  String    @id @default(uuid()) @db.Uuid
+  legalName           String    @map("razao_social")
+  tradeName           String?   @map("nome_fantasia")
+  document            String    @unique @map("documento")
+  email               String?   @map("email")
+  phone               String?   @map("telefone")
+  contactName         String?   @map("nome_contato")
+  notes               String?   @map("observacoes")
+  isActive            Boolean   @default(true) @map("ativo")
+  createdAt           DateTime  @default(now()) @map("criado_em")
+  updatedAt           DateTime  @updatedAt @map("atualizado_em")
+
+  orders              Order[]
+
+  @@map("clientes")
+  @@index([legalName], map: "idx_clientes_razao_social")
+  @@index([tradeName], map: "idx_clientes_nome_fantasia")
+  @@index([document], map: "idx_clientes_documento")
+  @@index([isActive], map: "idx_clientes_ativo")
+}
+
+model Product {
+  id                      String      @id @default(uuid()) @db.Uuid
+  name                    String      @map("nome")
+  sku                     String      @unique @map("sku")
+  description             String?     @map("descricao")
+  basePrice               Decimal     @db.Decimal(14, 2) @map("preco_base")
+  productionLeadTimeDays  Int?        @map("prazo_padrao_producao_dias")
+  isActive                Boolean     @default(true) @map("ativo")
+  createdAt               DateTime    @default(now()) @map("criado_em")
+  updatedAt               DateTime    @updatedAt @map("atualizado_em")
+
+  orderItems              OrderItem[]
+
+  @@map("produtos")
+  @@index([name], map: "idx_produtos_nome")
+  @@index([sku], map: "idx_produtos_sku")
+  @@index([isActive], map: "idx_produtos_ativo")
+}
+
+model Order {
+  id                      String               @id @default(uuid()) @db.Uuid
+  orderNumber             String               @unique @map("numero_pedido")
+  clientId                String               @db.Uuid @map("cliente_id")
+  status                  OrderStatus          @default(DRAFT) @map("status")
+  paymentStatus           PaymentStatus        @default(PENDING) @map("status_pagamento")
+  totalAmount             Decimal              @default(0) @db.Decimal(14, 2) @map("valor_total")
+  productionStartedAt     DateTime?            @map("producao_iniciada_em")
+  productionCompletedAt   DateTime?            @map("producao_concluida_em")
+  shippedAt               DateTime?            @map("expedido_em")
+  completedAt             DateTime?            @map("concluido_em")
+  productionDueDate       DateTime?            @map("data_prevista_producao")
+  shippingDueDate         DateTime?            @map("data_prevista_expedicao")
+  internalNotes           String?              @map("observacoes_internas")
+  createdByUserId         String               @db.Uuid @map("criado_por_usuario_id")
+  createdAt               DateTime             @default(now()) @map("criado_em")
+  updatedAt               DateTime             @updatedAt @map("atualizado_em")
+
+  client                  Client               @relation(fields: [clientId], references: [id])
+  createdByUser           User                 @relation("OrderCreatedBy", fields: [createdByUserId], references: [id])
+  items                   OrderItem[]
+  statusHistory           OrderStatusHistory[]
+  paymentApproval         PaymentApproval?
+  auditLogs               AuditLog[]
+
+  @@map("pedidos")
+  @@index([orderNumber], map: "idx_pedidos_numero_pedido")
+  @@index([clientId], map: "idx_pedidos_cliente_id")
+  @@index([status], map: "idx_pedidos_status")
+  @@index([paymentStatus], map: "idx_pedidos_status_pagamento")
+  @@index([createdByUserId], map: "idx_pedidos_criado_por_usuario_id")
+  @@index([createdAt], map: "idx_pedidos_criado_em")
+  @@index([productionDueDate], map: "idx_pedidos_data_prevista_producao")
+  @@index([shippingDueDate], map: "idx_pedidos_data_prevista_expedicao")
+}
+
+model OrderItem {
+  id                      String    @id @default(uuid()) @db.Uuid
+  orderId                 String    @db.Uuid @map("pedido_id")
+  productId               String    @db.Uuid @map("produto_id")
+  productNameSnapshot     String    @map("produto_nome_snapshot")
+  unitPrice               Decimal   @db.Decimal(14, 2) @map("preco_unitario")
+  quantity                Int       @map("quantidade")
+  subtotal                Decimal   @db.Decimal(14, 2) @map("subtotal")
+  createdAt               DateTime  @default(now()) @map("criado_em")
+  updatedAt               DateTime  @updatedAt @map("atualizado_em")
+
+  order                   Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product                 Product   @relation(fields: [productId], references: [id])
+
+  @@map("itens_pedido")
+  @@index([orderId], map: "idx_itens_pedido_pedido_id")
+  @@index([productId], map: "idx_itens_pedido_produto_id")
+}
+
+model OrderStatusHistory {
+  id                      String      @id @default(uuid()) @db.Uuid
+  orderId                 String      @db.Uuid @map("pedido_id")
+  previousStatus          OrderStatus? @map("status_anterior")
+  newStatus               OrderStatus  @map("novo_status")
+  changedByUserId         String      @db.Uuid @map("alterado_por_usuario_id")
+  note                    String?     @map("observacao")
+  createdAt               DateTime    @default(now()) @map("criado_em")
+
+  order                   Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  changedByUser           User        @relation(fields: [changedByUserId], references: [id])
+
+  @@map("historico_status_pedido")
+  @@index([orderId], map: "idx_historico_status_pedido_pedido_id")
+  @@index([changedByUserId], map: "idx_historico_status_pedido_usuario_id")
+  @@index([createdAt], map: "idx_historico_status_pedido_criado_em")
+}
+
+model PaymentApproval {
+  id                      String        @id @default(uuid()) @db.Uuid
+  orderId                 String        @unique @db.Uuid @map("pedido_id")
+  status                  PaymentStatus @map("status")
+  approvedByUserId        String?       @db.Uuid @map("aprovado_por_usuario_id")
+  decisionNote            String?       @map("observacao_decisao")
+  approvedAt              DateTime?     @map("aprovado_em")
+  createdAt               DateTime      @default(now()) @map("criado_em")
+  updatedAt               DateTime      @updatedAt @map("atualizado_em")
+
+  order                   Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  approvedByUser          User?         @relation(fields: [approvedByUserId], references: [id])
+
+  @@map("aprovacoes_pagamento")
+  @@index([orderId], map: "idx_aprovacoes_pagamento_pedido_id")
+  @@index([status], map: "idx_aprovacoes_pagamento_status")
+  @@index([approvedByUserId], map: "idx_aprovacoes_pagamento_usuario_id")
+}
+
+model AuditLog {
+  id                      String          @id @default(uuid()) @db.Uuid
+  entityType              AuditEntityType @map("tipo_entidade")
+  entityId                String          @db.Uuid @map("entidade_id")
+  action                  String          @map("acao")
+  description             String          @map("descricao")
+  userId                  String?         @db.Uuid @map("usuario_id")
+  orderId                 String?         @db.Uuid @map("pedido_id")
+  metadataJson            Json?           @map("metadata_json")
+  createdAt               DateTime        @default(now()) @map("criado_em")
+
+  user                    User?           @relation(fields: [userId], references: [id])
+  order                   Order?          @relation(fields: [orderId], references: [id])
+
+  @@map("logs_auditoria")
+  @@index([entityType, entityId], map: "idx_logs_auditoria_entidade")
+  @@index([userId], map: "idx_logs_auditoria_usuario_id")
+  @@index([orderId], map: "idx_logs_auditoria_pedido_id")
+  @@index([createdAt], map: "idx_logs_auditoria_criado_em")
 }
