@@ -1,4 +1,9 @@
-import { Injectable, NotImplementedException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -7,27 +12,138 @@ import { UpdateUserDto } from './dto/update-user.dto';
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll() {
-    throw new NotImplementedException(
-      'Listagem de usuarios sera implementada no proximo patch.',
-    );
+  async findAll() {
+    return this.prisma.user.findMany({
+      orderBy: {
+        name: 'asc',
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
   }
 
-  findById(_id: string) {
-    throw new NotImplementedException(
-      'Busca de usuario por id sera implementada no proximo patch.',
-    );
+  async findById(id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuario nao encontrado.');
+    }
+
+    return user;
   }
 
-  create(_dto: CreateUserDto) {
-    throw new NotImplementedException(
-      'Criacao de usuario sera implementada no proximo patch.',
-    );
+  async create(dto: CreateUserDto) {
+    const emailNormalizado = dto.email.trim().toLowerCase();
+
+    const existingUser = await this.prisma.user.findUnique({
+      where: {
+        email: emailNormalizado,
+      },
+    });
+
+    if (existingUser) {
+      throw new ConflictException(
+        'Ja existe um usuario cadastrado com este e-mail.',
+      );
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+
+    return this.prisma.user.create({
+      data: {
+        name: dto.name.trim(),
+        email: emailNormalizado,
+        passwordHash,
+        role: dto.role,
+        isActive: dto.isActive ?? true,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
   }
 
-  update(_id: string, _dto: UpdateUserDto) {
-    throw new NotImplementedException(
-      'Atualizacao de usuario sera implementada no proximo patch.',
-    );
+  async update(id: string, dto: UpdateUserDto) {
+    await this.ensureUserExists(id);
+
+    if (dto.email) {
+      const emailNormalizado = dto.email.trim().toLowerCase();
+
+      const existingUserWithEmail = await this.prisma.user.findFirst({
+        where: {
+          email: emailNormalizado,
+          id: {
+            not: id,
+          },
+        },
+      });
+
+      if (existingUserWithEmail) {
+        throw new ConflictException(
+          'Ja existe outro usuario cadastrado com este e-mail.',
+        );
+      }
+    }
+
+    const passwordHash = dto.password
+      ? await bcrypt.hash(dto.password, 10)
+      : undefined;
+
+    return this.prisma.user.update({
+      where: { id },
+      data: {
+        name: dto.name?.trim(),
+        email: dto.email?.trim().toLowerCase(),
+        passwordHash,
+        role: dto.role,
+        isActive: dto.isActive,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
+
+  private async ensureUserExists(id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuario nao encontrado.');
+    }
+
+    return user;
   }
 }
