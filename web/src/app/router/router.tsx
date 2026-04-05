@@ -1,24 +1,30 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
 import { ProtectedRoute } from "../../components/common/ProtectedRoute";
-import { AppShell } from "../../components/layout/AppShell";
+import { AppLayout } from "../../components/layout/AppLayout";
 import { LoginPage } from "../../pages/auth/LoginPage";
 import { OrderDetailPage } from "../../pages/orders/OrderDetailPage";
 import { OrdersListPage } from "../../pages/orders/OrdersListPage";
 import { NotFoundPage } from "../../pages/system/NotFoundPage";
+import { PublicOnlyRoute } from "./PublicOnlyRoute";
 
 export const router = createBrowserRouter([
   {
-    path: "/login",
-    element: <LoginPage />,
+    element: <PublicOnlyRoute />,
+    children: [
+      {
+        path: "/login",
+        element: <LoginPage />,
+      },
+    ],
   },
   {
     element: <ProtectedRoute />,
     children: [
       {
-        element: <AppShell />,
+        element: <AppLayout />,
         children: [
           {
-            index: true,
+            path: "/",
             element: <Navigate to="/orders" replace />,
           },
           {
@@ -36,9 +42,5 @@ export const router = createBrowserRouter([
         ],
       },
     ],
-  },
-  {
-    path: "*",
-    element: <Navigate to="/orders" replace />,
   },
 ]);
