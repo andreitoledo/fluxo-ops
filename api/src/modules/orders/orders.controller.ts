@@ -91,6 +91,27 @@ export class OrdersController {
     return this.ordersService.update(id, dto, req.user);
   }
 
+  @ApiOperation({ summary: 'Aprovar ou reprovar pagamento do pedido' })
+  @ApiResponse({
+    status: 200,
+    description: 'Decisao de pagamento registrada com sucesso.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Pedido nao permite decisao financeira.',
+  })
+  @ApiResponse({ status: 401, description: 'Nao autenticado.' })
+  @ApiResponse({ status: 403, description: 'Sem permissao.' })
+  @ApiResponse({ status: 404, description: 'Pedido nao encontrado.' })
+  @Patch(':id/payment')
+  async decidePayment(
+    @Param('id') id: string,
+    @Body() dto: DecidePaymentDto,
+    @Req() req: { user: AuthenticatedUser },
+  ) {
+    return this.ordersService.decidePayment(id, dto, req.user);
+  }
+
   @Roles(UserRole.ADMIN, UserRole.FINANCIAL)
   @ApiOperation({ summary: 'Aprovar pagamento do pedido' })
   @ApiResponse({

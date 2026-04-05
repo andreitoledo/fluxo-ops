@@ -88,6 +88,7 @@ export class OrdersService {
             },
           },
         },
+        paymentApproval: true,
       },
     });
 
@@ -248,6 +249,100 @@ export class OrdersService {
               },
             },
           },
+        },
+      });
+    });
+  }
+
+  async decidePayment(
+    orderId: string,
+    dto: DecidePaymentDto,
+    authenticatedUser: AuthenticatedUser,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.ensureUserExistsAndActive(tx, authenticatedUser.sub);
+
+      const order = await this.ensureOrderExists(tx, orderId);
+
+      this.assertOrderAllowsPaymentDecision(order.status);
+
+      const decisionNote = this.normalizeOptionalText(dto.decisionNote);
+
+      await tx.paymentApproval.upsert({
+        where: {
+          orderId: order.id,
+        },
+        create: {
+          orderId: order.id,
+          status: dto.status,
+          approvedByUserId:
+            dto.status === 'APPROVED' ? authenticatedUser.sub : null,
+          decisionNote,
+          approvedAt: dto.status === 'APPROVED' ? new Date() : null,
+        },
+        update: {
+          status: dto.status,
+          approvedByUserId:
+            dto.status === 'APPROVED' ? authenticatedUser.sub : null,
+          decisionNote,
+          approvedAt: dto.status === 'APPROVED' ? new Date() : null,
+        },
+      });
+
+      await tx.order.update({
+        where: {
+          id: order.id,
+        },
+        data: {
+          paymentStatus: dto.status,
+          status:
+            dto.status === 'APPROVED'
+              ? OrderStatus.PAYMENT_APPROVED
+              : OrderStatus.WAITING_PAYMENT,
+        },
+      });
+
+      return tx.order.findUniqueOrThrow({
+        where: {
+          id: order.id,
+        },
+        include: {
+          client: {
+            select: {
+              id: true,
+              legalName: true,
+              tradeName: true,
+              document: true,
+              email: true,
+              phone: true,
+              contactName: true,
+              isActive: true,
+            },
+          },
+          createdByUser: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+            },
+          },
+          items: {
+            orderBy: {
+              createdAt: 'asc',
+            },
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  sku: true,
+                  isActive: true,
+                },
+              },
+            },
+          },
+          paymentApproval: true,
         },
       });
     });
