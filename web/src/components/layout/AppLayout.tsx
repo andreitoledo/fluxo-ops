@@ -7,11 +7,21 @@ import {
   Toolbar,
   Typography,
 } from "@mui/material";
-import { Outlet, useNavigate } from "react-router-dom";
+import {
+  Link as RouterLink,
+  Outlet,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import { authStorage } from "../../utils/auth-storage";
+
+function getNavButtonVariant(currentPath: string, targetPath: string) {
+  return currentPath.startsWith(targetPath) ? "contained" : "text";
+}
 
 export function AppLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const user = authStorage.getUser();
 
   const handleLogout = () => {
@@ -24,20 +34,56 @@ export function AppLayout() {
       <AppBar position="static" elevation={0}>
         <Toolbar>
           <Stack
-            direction={{ xs: "column", md: "row" }}
+            direction={{ xs: "column", lg: "row" }}
             justifyContent="space-between"
-            alignItems={{ xs: "flex-start", md: "center" }}
+            alignItems={{ xs: "flex-start", lg: "center" }}
             spacing={2}
             sx={{ width: "100%" }}
           >
-            <Box>
-              <Typography variant="h6" fontWeight={700}>
-                FluxoOps
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Pedidos, Produção e Expedição
-              </Typography>
-            </Box>
+            <Stack
+              direction={{ xs: "column", lg: "row" }}
+              spacing={2}
+              alignItems={{ xs: "flex-start", lg: "center" }}
+              sx={{ width: "100%" }}
+            >
+              <Box>
+                <Typography variant="h6" fontWeight={700}>
+                  FluxoOps
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Pedidos, Produção e Expedição
+                </Typography>
+              </Box>
+
+              <Stack direction="row" spacing={1} flexWrap="wrap">
+                <Button
+                  component={RouterLink}
+                  to="/orders"
+                  variant={getNavButtonVariant(location.pathname, "/orders")}
+                  color="inherit"
+                >
+                  Pedidos
+                </Button>
+
+                <Button
+                  component={RouterLink}
+                  to="/clients"
+                  variant={getNavButtonVariant(location.pathname, "/clients")}
+                  color="inherit"
+                >
+                  Clientes
+                </Button>
+
+                <Button
+                  component={RouterLink}
+                  to="/products"
+                  variant={getNavButtonVariant(location.pathname, "/products")}
+                  color="inherit"
+                >
+                  Produtos
+                </Button>
+              </Stack>
+            </Stack>
 
             <Stack direction="row" spacing={2} alignItems="center">
               <Box textAlign="right">

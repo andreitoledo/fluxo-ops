@@ -1,16 +1,16 @@
-import type { UserRole } from './auth';
+import type { UserRole } from "./auth";
 
 export type OrderStatus =
-  | 'DRAFT'
-  | 'WAITING_PAYMENT'
-  | 'PAYMENT_APPROVED'
-  | 'IN_PRODUCTION'
-  | 'READY_TO_SHIP'
-  | 'SHIPPED'
-  | 'COMPLETED'
-  | 'CANCELED';
+  | "DRAFT"
+  | "WAITING_PAYMENT"
+  | "PAYMENT_APPROVED"
+  | "IN_PRODUCTION"
+  | "READY_TO_SHIP"
+  | "SHIPPED"
+  | "COMPLETED"
+  | "CANCELED";
 
-export type PaymentStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+export type PaymentStatus = "PENDING" | "APPROVED" | "REJECTED";
 
 export interface OrderClientSummary {
   id: string;
@@ -95,4 +95,29 @@ export interface OrderDetail extends OrderSummary {
   client: OrderClientSummary;
   items: OrderItem[];
   paymentApproval?: PaymentApproval | null;
+}
+
+export interface CreateOrderDto {
+  clientId: string;
+  status?: OrderStatus;
+  productionDueDate?: string;
+  shippingDueDate?: string;
+  internalNotes?: string;
+}
+export interface CreateOrderInput {
+  clientId: string;
+  status?: OrderStatus;
+  internalNotes?: string;
+  productionDueDate?: string;
+  shippingDueDate?: string;
+}
+
+export interface AddOrderItemInput {
+  productId: string;
+  quantity: number;
+  unitPrice?: number;
+}
+
+export interface AddOrderItemsInput {
+  items: AddOrderItemInput[];
 }
