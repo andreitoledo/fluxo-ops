@@ -97,19 +97,12 @@ export interface OrderDetail extends OrderSummary {
   paymentApproval?: PaymentApproval | null;
 }
 
-export interface CreateOrderDto {
-  clientId: string;
-  status?: OrderStatus;
-  productionDueDate?: string;
-  shippingDueDate?: string;
-  internalNotes?: string;
-}
 export interface CreateOrderInput {
   clientId: string;
   status?: OrderStatus;
-  internalNotes?: string;
   productionDueDate?: string;
   shippingDueDate?: string;
+  internalNotes?: string;
 }
 
 export interface AddOrderItemInput {
@@ -120,4 +113,9 @@ export interface AddOrderItemInput {
 
 export interface AddOrderItemsInput {
   items: AddOrderItemInput[];
+}
+
+export interface DecidePaymentInput {
+  status: "APPROVED" | "REJECTED";
+  decisionNote?: string;
 }

@@ -2,6 +2,7 @@ import { http } from "../../services/http";
 import type {
   AddOrderItemsInput,
   CreateOrderInput,
+  DecidePaymentInput,
   OrderDetail,
   OrderSummary,
 } from "../../types/orders";
@@ -43,6 +44,40 @@ export const ordersService = {
       `/orders/${orderId}/items`,
       payload,
     );
+    return data;
+  },
+
+  async approvePayment(
+    orderId: string,
+    input?: Omit<DecidePaymentInput, "status">,
+  ) {
+    const payload = {
+      status: "APPROVED" as const,
+      decisionNote: input?.decisionNote?.trim() || undefined,
+    };
+
+    const { data } = await http.patch<OrderDetail>(
+      `/orders/${orderId}/payment/approve`,
+      payload,
+    );
+
+    return data;
+  },
+
+  async rejectPayment(
+    orderId: string,
+    input?: Omit<DecidePaymentInput, "status">,
+  ) {
+    const payload = {
+      status: "REJECTED" as const,
+      decisionNote: input?.decisionNote?.trim() || undefined,
+    };
+
+    const { data } = await http.patch<OrderDetail>(
+      `/orders/${orderId}/payment/reject`,
+      payload,
+    );
+
     return data;
   },
 };

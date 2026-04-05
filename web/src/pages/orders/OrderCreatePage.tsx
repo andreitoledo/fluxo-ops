@@ -46,6 +46,8 @@ export function OrderCreatePage() {
   const [productId, setProductId] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [notes, setNotes] = useState("");
+  const [productionDueDate, setProductionDueDate] = useState("");
+  const [shippingDueDate, setShippingDueDate] = useState("");
 
   const [isLoadingDependencies, setIsLoadingDependencies] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -120,6 +122,8 @@ export function OrderCreatePage() {
       const createdOrder = await ordersService.create({
         clientId,
         internalNotes: notes,
+        productionDueDate: productionDueDate || undefined,
+        shippingDueDate: shippingDueDate || undefined,
       });
 
       const updatedOrder = await ordersService.addItems(createdOrder.id, {
@@ -205,6 +209,28 @@ export function OrderCreatePage() {
             required
           />
 
+          <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
+            <TextField
+              label="Produção prevista"
+              type="date"
+              value={productionDueDate}
+              onChange={(event) => setProductionDueDate(event.target.value)}
+              fullWidth
+              disabled={!canProceed || isSubmitting || isLoadingDependencies}
+              InputLabelProps={{ shrink: true }}
+            />
+
+            <TextField
+              label="Expedição prevista"
+              type="date"
+              value={shippingDueDate}
+              onChange={(event) => setShippingDueDate(event.target.value)}
+              fullWidth
+              disabled={!canProceed || isSubmitting || isLoadingDependencies}
+              InputLabelProps={{ shrink: true }}
+            />
+          </Stack>
+
           <TextField
             label="Observações"
             value={notes}
@@ -236,6 +262,14 @@ export function OrderCreatePage() {
 
               <Typography variant="body2" color="text.secondary">
                 Total estimado: {formatCurrency(totalPreview)}
+              </Typography>
+
+              <Typography variant="body2" color="text.secondary">
+                Produção prevista: {productionDueDate || "-"}
+              </Typography>
+
+              <Typography variant="body2" color="text.secondary">
+                Expedição prevista: {shippingDueDate || "-"}
               </Typography>
             </Stack>
           </Paper>
