@@ -4,13 +4,14 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { OrderStatus, Prisma } from '@prisma/client';
+import { OrderStatus, PaymentStatus, Prisma } from '@prisma/client';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { AddOrderItemsDto } from './dto/add-order-items.dto';
 import { UpdateOrderItemDto } from './dto/update-order-item.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
+import { DecidePaymentDto } from './dto/decide-payment.dto';
 
 @Injectable()
 export class OrdersService {
@@ -247,6 +248,187 @@ export class OrdersService {
               },
             },
           },
+        },
+      });
+    });
+  }
+
+  async approvePayment(
+    orderId: string,
+    dto: DecidePaymentDto,
+    authenticatedUser: AuthenticatedUser,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.ensureUserExistsAndActive(tx, authenticatedUser.sub);
+
+      const order = await this.ensureOrderExists(tx, orderId);
+
+      this.assertOrderAllowsPaymentDecision(order.status);
+      this.assertPaymentApprovalAllowed(order.paymentStatus);
+
+      await tx.paymentApproval.upsert({
+        where: {
+          orderId: order.id,
+        },
+        update: {
+          status: PaymentStatus.APPROVED,
+          approvedByUserId: authenticatedUser.sub,
+          decisionNote: this.normalizeOptionalText(dto.decisionNote),
+          approvedAt: new Date(),
+        },
+        create: {
+          orderId: order.id,
+          status: PaymentStatus.APPROVED,
+          approvedByUserId: authenticatedUser.sub,
+          decisionNote: this.normalizeOptionalText(dto.decisionNote),
+          approvedAt: new Date(),
+        },
+      });
+
+      await tx.order.update({
+        where: {
+          id: order.id,
+        },
+        data: {
+          paymentStatus: PaymentStatus.APPROVED,
+          status: OrderStatus.PAYMENT_APPROVED,
+        },
+      });
+
+      return tx.order.findUniqueOrThrow({
+        where: {
+          id: order.id,
+        },
+        include: {
+          client: {
+            select: {
+              id: true,
+              legalName: true,
+              tradeName: true,
+              document: true,
+              email: true,
+              phone: true,
+              contactName: true,
+              isActive: true,
+            },
+          },
+          createdByUser: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+            },
+          },
+          items: {
+            orderBy: {
+              createdAt: 'asc',
+            },
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  sku: true,
+                  isActive: true,
+                },
+              },
+            },
+          },
+          paymentApproval: true,
+        },
+      });
+    });
+  }
+
+  async rejectPayment(
+    orderId: string,
+    dto: DecidePaymentDto,
+    authenticatedUser: AuthenticatedUser,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.ensureUserExistsAndActive(tx, authenticatedUser.sub);
+
+      const order = await this.ensureOrderExists(tx, orderId);
+
+      this.assertOrderAllowsPaymentDecision(order.status);
+      this.assertPaymentRejectionAllowed(order.paymentStatus);
+
+      const nextOrderStatus =
+        order.status === OrderStatus.PAYMENT_APPROVED
+          ? OrderStatus.WAITING_PAYMENT
+          : order.status;
+
+      await tx.paymentApproval.upsert({
+        where: {
+          orderId: order.id,
+        },
+        update: {
+          status: PaymentStatus.REJECTED,
+          approvedByUserId: authenticatedUser.sub,
+          decisionNote: this.normalizeOptionalText(dto.decisionNote),
+          approvedAt: new Date(),
+        },
+        create: {
+          orderId: order.id,
+          status: PaymentStatus.REJECTED,
+          approvedByUserId: authenticatedUser.sub,
+          decisionNote: this.normalizeOptionalText(dto.decisionNote),
+          approvedAt: new Date(),
+        },
+      });
+
+      await tx.order.update({
+        where: {
+          id: order.id,
+        },
+        data: {
+          paymentStatus: PaymentStatus.REJECTED,
+          status: nextOrderStatus,
+        },
+      });
+
+      return tx.order.findUniqueOrThrow({
+        where: {
+          id: order.id,
+        },
+        include: {
+          client: {
+            select: {
+              id: true,
+              legalName: true,
+              tradeName: true,
+              document: true,
+              email: true,
+              phone: true,
+              contactName: true,
+              isActive: true,
+            },
+          },
+          createdByUser: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+            },
+          },
+          items: {
+            orderBy: {
+              createdAt: 'asc',
+            },
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  sku: true,
+                  isActive: true,
+                },
+              },
+            },
+          },
+          paymentApproval: true,
         },
       });
     });
@@ -550,6 +732,36 @@ export class OrdersService {
     }
   }
 
+  private assertOrderAllowsPaymentDecision(status: OrderStatus) {
+    const blockedStatuses: OrderStatus[] = [
+      OrderStatus.CANCELED,
+      OrderStatus.COMPLETED,
+      OrderStatus.SHIPPED,
+    ];
+
+    if (blockedStatuses.includes(status)) {
+      throw new BadRequestException(
+        'Nao e permitido decidir pagamento para pedidos cancelados, expedidos ou concluidos.',
+      );
+    }
+  }
+
+  private assertPaymentApprovalAllowed(paymentStatus: PaymentStatus) {
+    if (paymentStatus === PaymentStatus.APPROVED) {
+      throw new BadRequestException(
+        'O pagamento deste pedido ja foi aprovado.',
+      );
+    }
+  }
+
+  private assertPaymentRejectionAllowed(paymentStatus: PaymentStatus) {
+    if (paymentStatus === PaymentStatus.REJECTED) {
+      throw new BadRequestException(
+        'O pagamento deste pedido ja foi rejeitado.',
+      );
+    }
+  }
+
   private async ensureClientExistsAndActive(
     tx: Prisma.TransactionClient,
     clientId: string,
@@ -607,6 +819,7 @@ export class OrdersService {
       select: {
         id: true,
         status: true,
+        paymentStatus: true,
       },
     });
 

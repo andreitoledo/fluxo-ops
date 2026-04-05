@@ -19,6 +19,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { AddOrderItemsDto } from './dto/add-order-items.dto';
 import { UpdateOrderItemDto } from './dto/update-order-item.dto';
+import { DecidePaymentDto } from './dto/decide-payment.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrdersService } from './orders.service';
@@ -88,6 +89,44 @@ export class OrdersController {
     @Req() req: { user: AuthenticatedUser },
   ) {
     return this.ordersService.update(id, dto, req.user);
+  }
+
+  @Roles(UserRole.ADMIN, UserRole.FINANCIAL)
+  @ApiOperation({ summary: 'Aprovar pagamento do pedido' })
+  @ApiResponse({
+    status: 200,
+    description: 'Pagamento aprovado com sucesso.',
+  })
+  @ApiResponse({ status: 400, description: 'Pedido nao permite aprovacao.' })
+  @ApiResponse({ status: 401, description: 'Nao autenticado.' })
+  @ApiResponse({ status: 403, description: 'Sem permissao.' })
+  @ApiResponse({ status: 404, description: 'Pedido nao encontrado.' })
+  @Patch(':id/payment/approve')
+  async approvePayment(
+    @Param('id') id: string,
+    @Body() dto: DecidePaymentDto,
+    @Req() req: { user: AuthenticatedUser },
+  ) {
+    return this.ordersService.approvePayment(id, dto, req.user);
+  }
+
+  @Roles(UserRole.ADMIN, UserRole.FINANCIAL)
+  @ApiOperation({ summary: 'Rejeitar pagamento do pedido' })
+  @ApiResponse({
+    status: 200,
+    description: 'Pagamento rejeitado com sucesso.',
+  })
+  @ApiResponse({ status: 400, description: 'Pedido nao permite rejeicao.' })
+  @ApiResponse({ status: 401, description: 'Nao autenticado.' })
+  @ApiResponse({ status: 403, description: 'Sem permissao.' })
+  @ApiResponse({ status: 404, description: 'Pedido nao encontrado.' })
+  @Patch(':id/payment/reject')
+  async rejectPayment(
+    @Param('id') id: string,
+    @Body() dto: DecidePaymentDto,
+    @Req() req: { user: AuthenticatedUser },
+  ) {
+    return this.ordersService.rejectPayment(id, dto, req.user);
   }
 
   @ApiOperation({ summary: 'Adicionar itens ao pedido' })
