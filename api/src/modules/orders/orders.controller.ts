@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Req,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -9,6 +18,7 @@ import { UserRole } from '@prisma/client';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { AddOrderItemsDto } from './dto/add-order-items.dto';
+import { UpdateOrderItemDto } from './dto/update-order-item.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrdersService } from './orders.service';
 
@@ -74,5 +84,44 @@ export class OrdersController {
     @Req() req: { user: AuthenticatedUser },
   ) {
     return this.ordersService.addItems(id, dto, req.user);
+  }
+  @ApiOperation({ summary: 'Atualizar item do pedido' })
+  @ApiResponse({
+    status: 200,
+    description: 'Item do pedido atualizado com sucesso.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Dados invalidos para atualizacao.',
+  })
+  @ApiResponse({ status: 401, description: 'Nao autenticado.' })
+  @ApiResponse({ status: 403, description: 'Sem permissao.' })
+  @ApiResponse({ status: 404, description: 'Pedido ou item nao encontrado.' })
+  @Patch(':id/items/:itemId')
+  async updateItem(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Body() dto: UpdateOrderItemDto,
+    @Req() req: { user: AuthenticatedUser },
+  ) {
+    return this.ordersService.updateItem(id, itemId, dto, req.user);
+  }
+
+  @ApiOperation({ summary: 'Remover item do pedido' })
+  @ApiResponse({
+    status: 200,
+    description: 'Item removido e total do pedido recalculado com sucesso.',
+  })
+  @ApiResponse({ status: 400, description: 'Pedido nao permite alteracao.' })
+  @ApiResponse({ status: 401, description: 'Nao autenticado.' })
+  @ApiResponse({ status: 403, description: 'Sem permissao.' })
+  @ApiResponse({ status: 404, description: 'Pedido ou item nao encontrado.' })
+  @Delete(':id/items/:itemId')
+  async removeItem(
+    @Param('id') id: string,
+    @Param('itemId') itemId: string,
+    @Req() req: { user: AuthenticatedUser },
+  ) {
+    return this.ordersService.removeItem(id, itemId, req.user);
   }
 }

@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -10,6 +9,7 @@ import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.in
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { AddOrderItemsDto } from './dto/add-order-items.dto';
+import { UpdateOrderItemDto } from './dto/update-order-item.dto';
 
 @Injectable()
 export class OrdersService {
@@ -237,6 +237,154 @@ export class OrdersService {
     });
   }
 
+  async updateItem(
+    orderId: string,
+    itemId: string,
+    dto: UpdateOrderItemDto,
+    authenticatedUser: AuthenticatedUser,
+  ) {
+    if (dto.quantity === undefined && dto.unitPrice === undefined) {
+      throw new BadRequestException(
+        'Informe ao menos quantity ou unitPrice para atualizar o item.',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.ensureUserExistsAndActive(tx, authenticatedUser.sub);
+
+      const order = await this.ensureOrderExists(tx, orderId);
+
+      this.assertOrderAllowsItemChanges(order.status);
+
+      const orderItem = await this.ensureOrderItemExists(tx, order.id, itemId);
+
+      const quantity = dto.quantity ?? orderItem.quantity;
+      const unitPrice =
+        dto.unitPrice !== undefined
+          ? new Prisma.Decimal(dto.unitPrice)
+          : orderItem.unitPrice;
+
+      const subtotal = unitPrice.mul(quantity);
+
+      await tx.orderItem.update({
+        where: {
+          id: orderItem.id,
+        },
+        data: {
+          quantity,
+          unitPrice,
+          subtotal,
+        },
+      });
+
+      await this.recalculateOrderTotal(tx, order.id);
+
+      return tx.order.findUniqueOrThrow({
+        where: {
+          id: order.id,
+        },
+        include: {
+          client: {
+            select: {
+              id: true,
+              legalName: true,
+              tradeName: true,
+              document: true,
+              isActive: true,
+            },
+          },
+          createdByUser: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+            },
+          },
+          items: {
+            orderBy: {
+              createdAt: 'asc',
+            },
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  sku: true,
+                  isActive: true,
+                },
+              },
+            },
+          },
+        },
+      });
+    });
+  }
+
+  async removeItem(
+    orderId: string,
+    itemId: string,
+    authenticatedUser: AuthenticatedUser,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.ensureUserExistsAndActive(tx, authenticatedUser.sub);
+
+      const order = await this.ensureOrderExists(tx, orderId);
+
+      this.assertOrderAllowsItemChanges(order.status);
+
+      const orderItem = await this.ensureOrderItemExists(tx, order.id, itemId);
+
+      await tx.orderItem.delete({
+        where: {
+          id: orderItem.id,
+        },
+      });
+
+      await this.recalculateOrderTotal(tx, order.id);
+
+      return tx.order.findUniqueOrThrow({
+        where: {
+          id: order.id,
+        },
+        include: {
+          client: {
+            select: {
+              id: true,
+              legalName: true,
+              tradeName: true,
+              document: true,
+              isActive: true,
+            },
+          },
+          createdByUser: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+            },
+          },
+          items: {
+            orderBy: {
+              createdAt: 'asc',
+            },
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  sku: true,
+                  isActive: true,
+                },
+              },
+            },
+          },
+        },
+      });
+    });
+  }
+
   private async recalculateOrderTotal(
     tx: Prisma.TransactionClient,
     orderId: string,
@@ -351,6 +499,31 @@ export class OrdersService {
     }
 
     return order;
+  }
+
+  private async ensureOrderItemExists(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    itemId: string,
+  ) {
+    const orderItem = await tx.orderItem.findFirst({
+      where: {
+        id: itemId,
+        orderId,
+      },
+      select: {
+        id: true,
+        orderId: true,
+        quantity: true,
+        unitPrice: true,
+      },
+    });
+
+    if (!orderItem) {
+      throw new NotFoundException('Item do pedido nao encontrado.');
+    }
+
+    return orderItem;
   }
 
   private async ensureProductExistsAndActive(
