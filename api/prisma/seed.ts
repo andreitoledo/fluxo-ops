@@ -19,7 +19,12 @@ async function main() {
 
   await prisma.user.upsert({
     where: { email: 'admin@fluxoops.local' },
-    update: {},
+    update: {
+      name: 'Administrador',
+      passwordHash: senhaHash,
+      role: UserRole.ADMIN,
+      isActive: true,
+    },
     create: {
       name: 'Administrador',
       email: 'admin@fluxoops.local',
@@ -28,6 +33,19 @@ async function main() {
       isActive: true,
     },
   });
+
+  // versão antiga, antes do login no frontend
+  // await prisma.user.upsert({
+  //   where: { email: 'admin@fluxoops.local' },
+  //   update: {},
+  //   create: {
+  //     name: 'Administrador',
+  //     email: 'admin@fluxoops.local',
+  //     passwordHash: senhaHash,
+  //     role: UserRole.ADMIN,
+  //     isActive: true,
+  //   },
+  // });
 
   console.log('✅ Seed executado com sucesso.');
 }
