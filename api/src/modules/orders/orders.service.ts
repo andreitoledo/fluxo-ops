@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { AddOrderItemsDto } from './dto/add-order-items.dto';
 import { UpdateOrderItemDto } from './dto/update-order-item.dto';
+import { UpdateOrderDto } from './dto/update-order.dto';
 
 @Injectable()
 export class OrdersService {
@@ -150,6 +151,100 @@ export class OrdersService {
           items: {
             orderBy: {
               createdAt: 'asc',
+            },
+          },
+        },
+      });
+    });
+  }
+
+  async update(
+    orderId: string,
+    dto: UpdateOrderDto,
+    authenticatedUser: AuthenticatedUser,
+  ) {
+    if (
+      dto.clientId === undefined &&
+      dto.internalNotes === undefined &&
+      dto.productionDueDate === undefined &&
+      dto.shippingDueDate === undefined
+    ) {
+      throw new BadRequestException(
+        'Informe ao menos um campo de cabecalho para atualizar o pedido.',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.ensureUserExistsAndActive(tx, authenticatedUser.sub);
+
+      const order = await this.ensureOrderExists(tx, orderId);
+
+      this.assertOrderAllowsHeaderChanges(order.status);
+
+      if (dto.clientId !== undefined) {
+        this.assertClientChangeAllowed(order.status);
+        await this.ensureClientExistsAndActive(tx, dto.clientId);
+      }
+
+      await tx.order.update({
+        where: {
+          id: order.id,
+        },
+        data: {
+          clientId: dto.clientId,
+          internalNotes:
+            dto.internalNotes !== undefined
+              ? this.normalizeOptionalText(dto.internalNotes)
+              : undefined,
+          productionDueDate:
+            dto.productionDueDate !== undefined
+              ? new Date(dto.productionDueDate)
+              : undefined,
+          shippingDueDate:
+            dto.shippingDueDate !== undefined
+              ? new Date(dto.shippingDueDate)
+              : undefined,
+        },
+      });
+
+      return tx.order.findUniqueOrThrow({
+        where: {
+          id: order.id,
+        },
+        include: {
+          client: {
+            select: {
+              id: true,
+              legalName: true,
+              tradeName: true,
+              document: true,
+              email: true,
+              phone: true,
+              contactName: true,
+              isActive: true,
+            },
+          },
+          createdByUser: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+            },
+          },
+          items: {
+            orderBy: {
+              createdAt: 'asc',
+            },
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  sku: true,
+                  isActive: true,
+                },
+              },
             },
           },
         },
@@ -430,6 +525,27 @@ export class OrdersService {
     if (!editableStatuses.includes(status)) {
       throw new BadRequestException(
         'Nao e permitido adicionar itens para pedidos fora de DRAFT ou WAITING_PAYMENT.',
+      );
+    }
+  }
+
+  private assertOrderAllowsHeaderChanges(status: OrderStatus) {
+    const editableStatuses: OrderStatus[] = [
+      OrderStatus.DRAFT,
+      OrderStatus.WAITING_PAYMENT,
+    ];
+
+    if (!editableStatuses.includes(status)) {
+      throw new BadRequestException(
+        'Nao e permitido alterar o cabecalho para pedidos fora de DRAFT ou WAITING_PAYMENT.',
+      );
+    }
+  }
+
+  private assertClientChangeAllowed(status: OrderStatus) {
+    if (status !== OrderStatus.DRAFT) {
+      throw new BadRequestException(
+        'A troca de cliente e permitida apenas para pedidos em DRAFT.',
       );
     }
   }

@@ -19,6 +19,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { AddOrderItemsDto } from './dto/add-order-items.dto';
 import { UpdateOrderItemDto } from './dto/update-order-item.dto';
+import { UpdateOrderDto } from './dto/update-order.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrdersService } from './orders.service';
 
@@ -63,6 +64,30 @@ export class OrdersController {
     @Req() req: { user: AuthenticatedUser },
   ) {
     return this.ordersService.create(dto, req.user);
+  }
+
+  @ApiOperation({ summary: 'Atualizar cabecalho do pedido' })
+  @ApiResponse({
+    status: 200,
+    description: 'Cabecalho do pedido atualizado com sucesso.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Dados invalidos para atualizacao.',
+  })
+  @ApiResponse({ status: 401, description: 'Nao autenticado.' })
+  @ApiResponse({ status: 403, description: 'Sem permissao.' })
+  @ApiResponse({
+    status: 404,
+    description: 'Pedido ou cliente nao encontrado.',
+  })
+  @Patch(':id')
+  async update(
+    @Param('id') id: string,
+    @Body() dto: UpdateOrderDto,
+    @Req() req: { user: AuthenticatedUser },
+  ) {
+    return this.ordersService.update(id, dto, req.user);
   }
 
   @ApiOperation({ summary: 'Adicionar itens ao pedido' })
