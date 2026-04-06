@@ -529,6 +529,140 @@ export class OrdersService {
     });
   }
 
+  async startProduction(orderId: string, authenticatedUser: AuthenticatedUser) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.ensureUserExistsAndActive(tx, authenticatedUser.sub);
+
+      const order = await this.ensureOrderExists(tx, orderId);
+
+      this.assertProductionStartAllowed(order.status, order.paymentStatus);
+
+      await tx.order.update({
+        where: {
+          id: order.id,
+        },
+        data: {
+          status: OrderStatus.IN_PRODUCTION,
+          productionStartedAt: new Date(),
+        },
+      });
+
+      return tx.order.findUniqueOrThrow({
+        where: {
+          id: order.id,
+        },
+        include: {
+          client: {
+            select: {
+              id: true,
+              legalName: true,
+              tradeName: true,
+              document: true,
+              email: true,
+              phone: true,
+              contactName: true,
+              isActive: true,
+            },
+          },
+          createdByUser: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+            },
+          },
+          items: {
+            orderBy: {
+              createdAt: 'asc',
+            },
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  sku: true,
+                  isActive: true,
+                },
+              },
+            },
+          },
+          paymentApproval: true,
+        },
+      });
+    });
+  }
+
+  async completeProduction(
+    orderId: string,
+    authenticatedUser: AuthenticatedUser,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.ensureUserExistsAndActive(tx, authenticatedUser.sub);
+
+      const order = await this.ensureOrderExists(tx, orderId);
+
+      this.assertProductionCompletionAllowed(
+        order.status,
+        order.productionStartedAt,
+      );
+
+      await tx.order.update({
+        where: {
+          id: order.id,
+        },
+        data: {
+          status: OrderStatus.READY_TO_SHIP,
+          productionCompletedAt: new Date(),
+        },
+      });
+
+      return tx.order.findUniqueOrThrow({
+        where: {
+          id: order.id,
+        },
+        include: {
+          client: {
+            select: {
+              id: true,
+              legalName: true,
+              tradeName: true,
+              document: true,
+              email: true,
+              phone: true,
+              contactName: true,
+              isActive: true,
+            },
+          },
+          createdByUser: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+            },
+          },
+          items: {
+            orderBy: {
+              createdAt: 'asc',
+            },
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  sku: true,
+                  isActive: true,
+                },
+              },
+            },
+          },
+          paymentApproval: true,
+        },
+      });
+    });
+  }
+
   async addItems(
     orderId: string,
     dto: AddOrderItemsDto,
@@ -857,6 +991,40 @@ export class OrdersService {
     }
   }
 
+  private assertProductionStartAllowed(
+    status: OrderStatus,
+    paymentStatus: PaymentStatus,
+  ) {
+    if (paymentStatus !== PaymentStatus.APPROVED) {
+      throw new BadRequestException(
+        'Nao e permitido iniciar producao sem pagamento aprovado.',
+      );
+    }
+
+    if (status !== OrderStatus.PAYMENT_APPROVED) {
+      throw new BadRequestException(
+        'A producao so pode ser iniciada para pedidos com status PAYMENT_APPROVED.',
+      );
+    }
+  }
+
+  private assertProductionCompletionAllowed(
+    status: OrderStatus,
+    productionStartedAt: Date | null,
+  ) {
+    if (status !== OrderStatus.IN_PRODUCTION) {
+      throw new BadRequestException(
+        'A producao so pode ser concluida para pedidos em IN_PRODUCTION.',
+      );
+    }
+
+    if (!productionStartedAt) {
+      throw new BadRequestException(
+        'Nao e permitido concluir producao sem registro de inicio.',
+      );
+    }
+  }
+
   private async ensureClientExistsAndActive(
     tx: Prisma.TransactionClient,
     clientId: string,
@@ -915,6 +1083,8 @@ export class OrdersService {
         id: true,
         status: true,
         paymentStatus: true,
+        productionStartedAt: true,
+        productionCompletedAt: true,
       },
     });
 

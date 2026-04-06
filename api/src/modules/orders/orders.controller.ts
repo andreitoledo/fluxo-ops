@@ -31,6 +31,12 @@ import { OrdersService } from './orders.service';
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.OPERATIONS,
+    UserRole.FINANCIAL,
+    UserRole.PRODUCTION,
+  )
   @ApiOperation({ summary: 'Listar pedidos' })
   @ApiResponse({
     status: 200,
@@ -43,6 +49,12 @@ export class OrdersController {
     return this.ordersService.findAll();
   }
 
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.OPERATIONS,
+    UserRole.FINANCIAL,
+    UserRole.PRODUCTION,
+  )
   @ApiOperation({ summary: 'Buscar pedido por ID' })
   @ApiResponse({ status: 200, description: 'Pedido encontrado com sucesso.' })
   @ApiResponse({ status: 401, description: 'Nao autenticado.' })
@@ -148,6 +160,48 @@ export class OrdersController {
     @Req() req: { user: AuthenticatedUser },
   ) {
     return this.ordersService.rejectPayment(id, dto, req.user);
+  }
+
+  @Roles(UserRole.ADMIN, UserRole.PRODUCTION)
+  @ApiOperation({ summary: 'Iniciar producao do pedido' })
+  @ApiResponse({
+    status: 200,
+    description: 'Producao iniciada com sucesso.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Pedido nao permite inicio de producao.',
+  })
+  @ApiResponse({ status: 401, description: 'Nao autenticado.' })
+  @ApiResponse({ status: 403, description: 'Sem permissao.' })
+  @ApiResponse({ status: 404, description: 'Pedido nao encontrado.' })
+  @Patch(':id/production/start')
+  async startProduction(
+    @Param('id') id: string,
+    @Req() req: { user: AuthenticatedUser },
+  ) {
+    return this.ordersService.startProduction(id, req.user);
+  }
+
+  @Roles(UserRole.ADMIN, UserRole.PRODUCTION)
+  @ApiOperation({ summary: 'Concluir producao do pedido' })
+  @ApiResponse({
+    status: 200,
+    description: 'Producao concluida com sucesso.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Pedido nao permite conclusao de producao.',
+  })
+  @ApiResponse({ status: 401, description: 'Nao autenticado.' })
+  @ApiResponse({ status: 403, description: 'Sem permissao.' })
+  @ApiResponse({ status: 404, description: 'Pedido nao encontrado.' })
+  @Patch(':id/production/complete')
+  async completeProduction(
+    @Param('id') id: string,
+    @Req() req: { user: AuthenticatedUser },
+  ) {
+    return this.ordersService.completeProduction(id, req.user);
   }
 
   @ApiOperation({ summary: 'Adicionar itens ao pedido' })

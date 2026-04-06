@@ -80,4 +80,20 @@ export const ordersService = {
 
     return data;
   },
+
+  async startProduction(orderId: string) {
+    const { data } = await http.patch<OrderDetail>(
+      `/orders/${orderId}/production/start`,
+    );
+
+    return data;
+  },
+
+  async completeProduction(orderId: string) {
+    const { data } = await http.patch<OrderDetail>(
+      `/orders/${orderId}/production/complete`,
+    );
+
+    return data;
+  },
 };

@@ -104,24 +104,60 @@ export function OrderDetailPage() {
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+  const [productionAction, setProductionAction] = useState<
+    "start" | "complete" | null
+  >(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const user = authStorage.getUser();
 
-  const canApproveOrRejectPayment = useMemo(() => {
-    if (!order || !user) {
+  const canManagePaymentRole = useMemo(() => {
+    if (!user) {
       return false;
     }
 
-    const allowedRole = user.role === "ADMIN" || user.role === "FINANCIAL";
+    return user.role === "ADMIN" || user.role === "FINANCIAL";
+  }, [user]);
+
+  const canManageProductionRole = useMemo(() => {
+    if (!user) {
+      return false;
+    }
+
+    return user.role === "ADMIN" || user.role === "PRODUCTION";
+  }, [user]);
+
+  const canApproveOrRejectPayment = useMemo(() => {
+    if (!order || !canManagePaymentRole) {
+      return false;
+    }
+
     const allowedStatus =
       order.status === "DRAFT" ||
       order.status === "WAITING_PAYMENT" ||
       order.status === "PAYMENT_APPROVED";
 
-    return allowedRole && allowedStatus;
-  }, [order, user]);
+    return allowedStatus;
+  }, [order, canManagePaymentRole]);
+
+  const canStartProduction = useMemo(() => {
+    if (!order || !canManageProductionRole) {
+      return false;
+    }
+
+    return (
+      order.status === "PAYMENT_APPROVED" && order.paymentStatus === "APPROVED"
+    );
+  }, [order, canManageProductionRole]);
+
+  const canCompleteProduction = useMemo(() => {
+    if (!order || !canManageProductionRole) {
+      return false;
+    }
+
+    return order.status === "IN_PRODUCTION";
+  }, [order, canManageProductionRole]);
 
   const loadOrder = async () => {
     if (!id) {
@@ -184,6 +220,46 @@ export function OrderDetailPage() {
       setErrorMessage(extractApiErrorMessage(error));
     } finally {
       setIsSubmittingPayment(false);
+    }
+  };
+
+  const handleStartProduction = async () => {
+    if (!id) {
+      return;
+    }
+
+    setProductionAction("start");
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const updatedOrder = await ordersService.startProduction(id);
+      setOrder(updatedOrder);
+      setSuccessMessage("Produção iniciada com sucesso.");
+    } catch (error) {
+      setErrorMessage(extractApiErrorMessage(error));
+    } finally {
+      setProductionAction(null);
+    }
+  };
+
+  const handleCompleteProduction = async () => {
+    if (!id) {
+      return;
+    }
+
+    setProductionAction("complete");
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const updatedOrder = await ordersService.completeProduction(id);
+      setOrder(updatedOrder);
+      setSuccessMessage("Produção concluída com sucesso.");
+    } catch (error) {
+      setErrorMessage(extractApiErrorMessage(error));
+    } finally {
+      setProductionAction(null);
     }
   };
 
@@ -332,26 +408,72 @@ export function OrderDetailPage() {
             Ações rápidas
           </Typography>
 
-          <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
-            <Button
-              variant="contained"
-              onClick={handleApprovePayment}
-              disabled={!canApproveOrRejectPayment || isSubmittingPayment}
-            >
-              {isSubmittingPayment ? "Processando..." : "Aprovar pagamento"}
-            </Button>
+          <Stack
+            direction={{ xs: "column", md: "row" }}
+            spacing={2}
+            flexWrap="wrap"
+          >
+            {canManagePaymentRole ? (
+              <>
+                <Button
+                  variant="contained"
+                  onClick={handleApprovePayment}
+                  disabled={
+                    !canApproveOrRejectPayment ||
+                    isSubmittingPayment ||
+                    productionAction !== null
+                  }
+                >
+                  {isSubmittingPayment ? "Processando..." : "Aprovar pagamento"}
+                </Button>
 
-            <Button
-              variant="outlined"
-              onClick={handleRejectPayment}
-              disabled={!canApproveOrRejectPayment || isSubmittingPayment}
-            >
-              {isSubmittingPayment ? "Processando..." : "Reprovar pagamento"}
-            </Button>
+                <Button
+                  variant="outlined"
+                  onClick={handleRejectPayment}
+                  disabled={
+                    !canApproveOrRejectPayment ||
+                    isSubmittingPayment ||
+                    productionAction !== null
+                  }
+                >
+                  {isSubmittingPayment
+                    ? "Processando..."
+                    : "Reprovar pagamento"}
+                </Button>
+              </>
+            ) : null}
 
-            <Button variant="outlined" disabled>
-              Iniciar produção
-            </Button>
+            {canManageProductionRole ? (
+              <>
+                <Button
+                  variant="outlined"
+                  onClick={handleStartProduction}
+                  disabled={
+                    !canStartProduction ||
+                    isSubmittingPayment ||
+                    productionAction !== null
+                  }
+                >
+                  {productionAction === "start"
+                    ? "Processando..."
+                    : "Iniciar produção"}
+                </Button>
+
+                <Button
+                  variant="outlined"
+                  onClick={handleCompleteProduction}
+                  disabled={
+                    !canCompleteProduction ||
+                    isSubmittingPayment ||
+                    productionAction !== null
+                  }
+                >
+                  {productionAction === "complete"
+                    ? "Processando..."
+                    : "Concluir produção"}
+                </Button>
+              </>
+            ) : null}
 
             <Button variant="outlined" disabled>
               Expedir pedido
@@ -359,8 +481,8 @@ export function OrderDetailPage() {
           </Stack>
 
           <Typography variant="caption" color="text.secondary">
-            Pagamento já integrado ao backend. Produção e expedição permanecem
-            desabilitados até os próximos patches do workflow.
+            Pagamento e produção já estão integrados ao backend. Expedição
+            permanece desabilitada até o próximo patch do workflow.
           </Typography>
         </Stack>
       </Paper>
