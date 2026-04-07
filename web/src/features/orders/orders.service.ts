@@ -96,4 +96,36 @@ export const ordersService = {
 
     return data;
   },
+
+  async shipOrder(orderId: string) {
+    const { data } = await http.patch<OrderDetail>(
+      `/orders/${orderId}/shipping/ship`,
+    );
+
+    return data;
+  },
+
+  async completeOrder(orderId: string) {
+    const { data } = await http.patch<OrderDetail>(
+      `/orders/${orderId}/complete`,
+    );
+
+    return data;
+  },
+
+  async startProduction(orderId: string) {
+    const { data } = await http.patch<OrderDetail>(
+      `/orders/${orderId}/production/start`,
+    );
+
+    return data;
+  },
+
+  async completeProduction(orderId: string) {
+    const { data } = await http.patch<OrderDetail>(
+      `/orders/${orderId}/production/complete`,
+    );
+
+    return data;
+  },
 };

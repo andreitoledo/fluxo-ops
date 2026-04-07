@@ -263,4 +263,46 @@ export class OrdersController {
   ) {
     return this.ordersService.removeItem(id, itemId, req.user);
   }
+
+  @Roles(UserRole.ADMIN, UserRole.OPERATIONS)
+  @ApiOperation({ summary: 'Expedir pedido' })
+  @ApiResponse({
+    status: 200,
+    description: 'Pedido expedido com sucesso.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Pedido nao permite expedicao.',
+  })
+  @ApiResponse({ status: 401, description: 'Nao autenticado.' })
+  @ApiResponse({ status: 403, description: 'Sem permissao.' })
+  @ApiResponse({ status: 404, description: 'Pedido nao encontrado.' })
+  @Patch(':id/shipping/ship')
+  async shipOrder(
+    @Param('id') id: string,
+    @Req() req: { user: AuthenticatedUser },
+  ) {
+    return this.ordersService.shipOrder(id, req.user);
+  }
+
+  @Roles(UserRole.ADMIN, UserRole.OPERATIONS)
+  @ApiOperation({ summary: 'Concluir pedido' })
+  @ApiResponse({
+    status: 200,
+    description: 'Pedido concluido com sucesso.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Pedido nao permite conclusao.',
+  })
+  @ApiResponse({ status: 401, description: 'Nao autenticado.' })
+  @ApiResponse({ status: 403, description: 'Sem permissao.' })
+  @ApiResponse({ status: 404, description: 'Pedido nao encontrado.' })
+  @Patch(':id/complete')
+  async completeOrder(
+    @Param('id') id: string,
+    @Req() req: { user: AuthenticatedUser },
+  ) {
+    return this.ordersService.completeOrder(id, req.user);
+  }
 }

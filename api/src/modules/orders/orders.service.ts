@@ -4,7 +4,12 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { OrderStatus, PaymentStatus, Prisma } from '@prisma/client';
+import {
+  AuditEntityType,
+  OrderStatus,
+  PaymentStatus,
+  Prisma,
+} from '@prisma/client';
 import { AuthenticatedUser } from '../../common/interfaces/authenticated-user.interface';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -52,44 +57,7 @@ export class OrdersService {
   async findById(id: string) {
     const order = await this.prisma.order.findUnique({
       where: { id },
-      include: {
-        client: {
-          select: {
-            id: true,
-            legalName: true,
-            tradeName: true,
-            document: true,
-            email: true,
-            phone: true,
-            contactName: true,
-            isActive: true,
-          },
-        },
-        createdByUser: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            role: true,
-          },
-        },
-        items: {
-          orderBy: {
-            createdAt: 'asc',
-          },
-          include: {
-            product: {
-              select: {
-                id: true,
-                name: true,
-                sku: true,
-                isActive: true,
-              },
-            },
-          },
-        },
-        paymentApproval: true,
-      },
+      include: this.getOrderDetailInclude(),
     });
 
     if (!order) {
@@ -259,93 +227,11 @@ export class OrdersService {
     dto: DecidePaymentDto,
     authenticatedUser: AuthenticatedUser,
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await this.ensureUserExistsAndActive(tx, authenticatedUser.sub);
+    if (dto.status === PaymentStatus.APPROVED) {
+      return this.approvePayment(orderId, dto, authenticatedUser);
+    }
 
-      const order = await this.ensureOrderExists(tx, orderId);
-
-      this.assertOrderAllowsPaymentDecision(order.status);
-
-      const decisionNote = this.normalizeOptionalText(dto.decisionNote);
-
-      await tx.paymentApproval.upsert({
-        where: {
-          orderId: order.id,
-        },
-        create: {
-          orderId: order.id,
-          status: dto.status,
-          approvedByUserId:
-            dto.status === 'APPROVED' ? authenticatedUser.sub : null,
-          decisionNote,
-          approvedAt: dto.status === 'APPROVED' ? new Date() : null,
-        },
-        update: {
-          status: dto.status,
-          approvedByUserId:
-            dto.status === 'APPROVED' ? authenticatedUser.sub : null,
-          decisionNote,
-          approvedAt: dto.status === 'APPROVED' ? new Date() : null,
-        },
-      });
-
-      await tx.order.update({
-        where: {
-          id: order.id,
-        },
-        data: {
-          paymentStatus: dto.status,
-          status:
-            dto.status === 'APPROVED'
-              ? OrderStatus.PAYMENT_APPROVED
-              : OrderStatus.WAITING_PAYMENT,
-        },
-      });
-
-      return tx.order.findUniqueOrThrow({
-        where: {
-          id: order.id,
-        },
-        include: {
-          client: {
-            select: {
-              id: true,
-              legalName: true,
-              tradeName: true,
-              document: true,
-              email: true,
-              phone: true,
-              contactName: true,
-              isActive: true,
-            },
-          },
-          createdByUser: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              role: true,
-            },
-          },
-          items: {
-            orderBy: {
-              createdAt: 'asc',
-            },
-            include: {
-              product: {
-                select: {
-                  id: true,
-                  name: true,
-                  sku: true,
-                  isActive: true,
-                },
-              },
-            },
-          },
-          paymentApproval: true,
-        },
-      });
-    });
+    return this.rejectPayment(orderId, dto, authenticatedUser);
   }
 
   async approvePayment(
@@ -361,22 +247,25 @@ export class OrdersService {
       this.assertOrderAllowsPaymentDecision(order.status);
       this.assertPaymentApprovalAllowed(order.paymentStatus);
 
-      await tx.paymentApproval.upsert({
+      const decisionNote = this.normalizeOptionalText(dto.decisionNote);
+      const approvedAt = new Date();
+
+      const paymentApproval = await tx.paymentApproval.upsert({
         where: {
           orderId: order.id,
         },
         update: {
           status: PaymentStatus.APPROVED,
           approvedByUserId: authenticatedUser.sub,
-          decisionNote: this.normalizeOptionalText(dto.decisionNote),
-          approvedAt: new Date(),
+          decisionNote,
+          approvedAt,
         },
         create: {
           orderId: order.id,
           status: PaymentStatus.APPROVED,
           approvedByUserId: authenticatedUser.sub,
-          decisionNote: this.normalizeOptionalText(dto.decisionNote),
-          approvedAt: new Date(),
+          decisionNote,
+          approvedAt,
         },
       });
 
@@ -390,49 +279,33 @@ export class OrdersService {
         },
       });
 
-      return tx.order.findUniqueOrThrow({
-        where: {
-          id: order.id,
-        },
-        include: {
-          client: {
-            select: {
-              id: true,
-              legalName: true,
-              tradeName: true,
-              document: true,
-              email: true,
-              phone: true,
-              contactName: true,
-              isActive: true,
-            },
-          },
-          createdByUser: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              role: true,
-            },
-          },
-          items: {
-            orderBy: {
-              createdAt: 'asc',
-            },
-            include: {
-              product: {
-                select: {
-                  id: true,
-                  name: true,
-                  sku: true,
-                  isActive: true,
-                },
-              },
-            },
-          },
-          paymentApproval: true,
+      await this.registerStatusHistory(tx, {
+        orderId: order.id,
+        previousStatus: order.status,
+        newStatus: OrderStatus.PAYMENT_APPROVED,
+        changedByUserId: authenticatedUser.sub,
+        note: decisionNote ?? 'Pagamento aprovado.',
+      });
+
+      await this.registerAuditLog(tx, {
+        entityType: AuditEntityType.PAYMENT_APPROVAL,
+        entityId: paymentApproval.id,
+        action: 'PAYMENT_APPROVED',
+        description: 'Pagamento aprovado para o pedido.',
+        userId: authenticatedUser.sub,
+        orderId: order.id,
+        metadataJson: {
+          orderId: order.id,
+          previousStatus: order.status,
+          newStatus: OrderStatus.PAYMENT_APPROVED,
+          previousPaymentStatus: order.paymentStatus,
+          newPaymentStatus: PaymentStatus.APPROVED,
+          decisionNote: decisionNote ?? null,
+          approvedAt: approvedAt.toISOString(),
         },
       });
+
+      return this.buildOrderDetail(tx, order.id);
     });
   }
 
@@ -449,27 +322,30 @@ export class OrdersService {
       this.assertOrderAllowsPaymentDecision(order.status);
       this.assertPaymentRejectionAllowed(order.paymentStatus);
 
+      const decisionNote = this.normalizeOptionalText(dto.decisionNote);
+      const rejectedAt = new Date();
+
       const nextOrderStatus =
         order.status === OrderStatus.PAYMENT_APPROVED
           ? OrderStatus.WAITING_PAYMENT
           : order.status;
 
-      await tx.paymentApproval.upsert({
+      const paymentApproval = await tx.paymentApproval.upsert({
         where: {
           orderId: order.id,
         },
         update: {
           status: PaymentStatus.REJECTED,
           approvedByUserId: authenticatedUser.sub,
-          decisionNote: this.normalizeOptionalText(dto.decisionNote),
-          approvedAt: new Date(),
+          decisionNote,
+          approvedAt: rejectedAt,
         },
         create: {
           orderId: order.id,
           status: PaymentStatus.REJECTED,
           approvedByUserId: authenticatedUser.sub,
-          decisionNote: this.normalizeOptionalText(dto.decisionNote),
-          approvedAt: new Date(),
+          decisionNote,
+          approvedAt: rejectedAt,
         },
       });
 
@@ -483,49 +359,33 @@ export class OrdersService {
         },
       });
 
-      return tx.order.findUniqueOrThrow({
-        where: {
-          id: order.id,
-        },
-        include: {
-          client: {
-            select: {
-              id: true,
-              legalName: true,
-              tradeName: true,
-              document: true,
-              email: true,
-              phone: true,
-              contactName: true,
-              isActive: true,
-            },
-          },
-          createdByUser: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              role: true,
-            },
-          },
-          items: {
-            orderBy: {
-              createdAt: 'asc',
-            },
-            include: {
-              product: {
-                select: {
-                  id: true,
-                  name: true,
-                  sku: true,
-                  isActive: true,
-                },
-              },
-            },
-          },
-          paymentApproval: true,
+      await this.registerStatusHistory(tx, {
+        orderId: order.id,
+        previousStatus: order.status,
+        newStatus: nextOrderStatus,
+        changedByUserId: authenticatedUser.sub,
+        note: decisionNote ?? 'Pagamento rejeitado.',
+      });
+
+      await this.registerAuditLog(tx, {
+        entityType: AuditEntityType.PAYMENT_APPROVAL,
+        entityId: paymentApproval.id,
+        action: 'PAYMENT_REJECTED',
+        description: 'Pagamento rejeitado para o pedido.',
+        userId: authenticatedUser.sub,
+        orderId: order.id,
+        metadataJson: {
+          orderId: order.id,
+          previousStatus: order.status,
+          newStatus: nextOrderStatus,
+          previousPaymentStatus: order.paymentStatus,
+          newPaymentStatus: PaymentStatus.REJECTED,
+          decisionNote: decisionNote ?? null,
+          rejectedAt: rejectedAt.toISOString(),
         },
       });
+
+      return this.buildOrderDetail(tx, order.id);
     });
   }
 
@@ -537,59 +397,136 @@ export class OrdersService {
 
       this.assertProductionStartAllowed(order.status, order.paymentStatus);
 
+      const startedAt = new Date();
+
       await tx.order.update({
         where: {
           id: order.id,
         },
         data: {
           status: OrderStatus.IN_PRODUCTION,
-          productionStartedAt: new Date(),
+          productionStartedAt: startedAt,
         },
       });
 
-      return tx.order.findUniqueOrThrow({
+      await this.registerStatusHistory(tx, {
+        orderId: order.id,
+        previousStatus: order.status,
+        newStatus: OrderStatus.IN_PRODUCTION,
+        changedByUserId: authenticatedUser.sub,
+        note: 'Produção iniciada.',
+      });
+
+      await this.registerAuditLog(tx, {
+        entityType: AuditEntityType.ORDER,
+        entityId: order.id,
+        action: 'ORDER_PRODUCTION_STARTED',
+        description: 'Produção iniciada para o pedido.',
+        userId: authenticatedUser.sub,
+        orderId: order.id,
+        metadataJson: {
+          orderId: order.id,
+          previousStatus: order.status,
+          newStatus: OrderStatus.IN_PRODUCTION,
+          productionStartedAt: startedAt.toISOString(),
+        },
+      });
+
+      return this.buildOrderDetail(tx, order.id);
+    });
+  }
+
+  async shipOrder(orderId: string, authenticatedUser: AuthenticatedUser) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.ensureUserExistsAndActive(tx, authenticatedUser.sub);
+
+      const order = await this.ensureOrderExists(tx, orderId);
+
+      this.assertShippingAllowed(order.status, order.productionCompletedAt);
+
+      const shippedAt = new Date();
+
+      await tx.order.update({
         where: {
           id: order.id,
         },
-        include: {
-          client: {
-            select: {
-              id: true,
-              legalName: true,
-              tradeName: true,
-              document: true,
-              email: true,
-              phone: true,
-              contactName: true,
-              isActive: true,
-            },
-          },
-          createdByUser: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              role: true,
-            },
-          },
-          items: {
-            orderBy: {
-              createdAt: 'asc',
-            },
-            include: {
-              product: {
-                select: {
-                  id: true,
-                  name: true,
-                  sku: true,
-                  isActive: true,
-                },
-              },
-            },
-          },
-          paymentApproval: true,
+        data: {
+          status: OrderStatus.SHIPPED,
+          shippedAt,
         },
       });
+
+      await this.registerStatusHistory(tx, {
+        orderId: order.id,
+        previousStatus: order.status,
+        newStatus: OrderStatus.SHIPPED,
+        changedByUserId: authenticatedUser.sub,
+        note: 'Pedido expedido.',
+      });
+
+      await this.registerAuditLog(tx, {
+        entityType: AuditEntityType.ORDER,
+        entityId: order.id,
+        action: 'ORDER_SHIPPED',
+        description: 'Pedido expedido.',
+        userId: authenticatedUser.sub,
+        orderId: order.id,
+        metadataJson: {
+          orderId: order.id,
+          previousStatus: order.status,
+          newStatus: OrderStatus.SHIPPED,
+          shippedAt: shippedAt.toISOString(),
+        },
+      });
+
+      return this.buildOrderDetail(tx, order.id);
+    });
+  }
+
+  async completeOrder(orderId: string, authenticatedUser: AuthenticatedUser) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.ensureUserExistsAndActive(tx, authenticatedUser.sub);
+
+      const order = await this.ensureOrderExists(tx, orderId);
+
+      this.assertOrderCompletionAllowed(order.status, order.shippedAt);
+
+      const completedAt = new Date();
+
+      await tx.order.update({
+        where: {
+          id: order.id,
+        },
+        data: {
+          status: OrderStatus.COMPLETED,
+          completedAt,
+        },
+      });
+
+      await this.registerStatusHistory(tx, {
+        orderId: order.id,
+        previousStatus: order.status,
+        newStatus: OrderStatus.COMPLETED,
+        changedByUserId: authenticatedUser.sub,
+        note: 'Pedido concluído.',
+      });
+
+      await this.registerAuditLog(tx, {
+        entityType: AuditEntityType.ORDER,
+        entityId: order.id,
+        action: 'ORDER_COMPLETED',
+        description: 'Pedido concluído.',
+        userId: authenticatedUser.sub,
+        orderId: order.id,
+        metadataJson: {
+          orderId: order.id,
+          previousStatus: order.status,
+          newStatus: OrderStatus.COMPLETED,
+          completedAt: completedAt.toISOString(),
+        },
+      });
+
+      return this.buildOrderDetail(tx, order.id);
     });
   }
 
@@ -914,6 +851,139 @@ export class OrdersService {
     });
   }
 
+  private getOrderDetailInclude(): Prisma.OrderInclude {
+    return {
+      client: {
+        select: {
+          id: true,
+          legalName: true,
+          tradeName: true,
+          document: true,
+          email: true,
+          phone: true,
+          contactName: true,
+          isActive: true,
+        },
+      },
+      createdByUser: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        },
+      },
+      items: {
+        orderBy: {
+          createdAt: 'asc',
+        },
+        include: {
+          product: {
+            select: {
+              id: true,
+              name: true,
+              sku: true,
+              isActive: true,
+            },
+          },
+        },
+      },
+      paymentApproval: true,
+      statusHistory: {
+        orderBy: {
+          createdAt: 'desc',
+        },
+        include: {
+          changedByUser: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+            },
+          },
+        },
+      },
+      auditLogs: {
+        orderBy: {
+          createdAt: 'desc',
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+            },
+          },
+        },
+      },
+    };
+  }
+
+  private async buildOrderDetail(
+    client: Prisma.TransactionClient | PrismaService,
+    orderId: string,
+  ) {
+    return client.order.findUniqueOrThrow({
+      where: {
+        id: orderId,
+      },
+      include: this.getOrderDetailInclude(),
+    });
+  }
+
+  private async registerStatusHistory(
+    tx: Prisma.TransactionClient,
+    params: {
+      orderId: string;
+      previousStatus: OrderStatus | null;
+      newStatus: OrderStatus;
+      changedByUserId: string;
+      note?: string | null;
+    },
+  ) {
+    if (params.previousStatus === params.newStatus) {
+      return;
+    }
+
+    await tx.orderStatusHistory.create({
+      data: {
+        orderId: params.orderId,
+        previousStatus: params.previousStatus,
+        newStatus: params.newStatus,
+        changedByUserId: params.changedByUserId,
+        note: params.note ?? null,
+      },
+    });
+  }
+
+  private async registerAuditLog(
+    tx: Prisma.TransactionClient,
+    params: {
+      entityType: AuditEntityType;
+      entityId: string;
+      action: string;
+      description: string;
+      userId: string;
+      orderId?: string | null;
+      metadataJson?: Prisma.InputJsonValue;
+    },
+  ) {
+    await tx.auditLog.create({
+      data: {
+        entityType: params.entityType,
+        entityId: params.entityId,
+        action: params.action,
+        description: params.description,
+        userId: params.userId,
+        orderId: params.orderId ?? null,
+        metadataJson: params.metadataJson,
+      },
+    });
+  }
+
   private assertAllowedInitialStatus(status: OrderStatus) {
     const allowedStatuses: OrderStatus[] = [
       OrderStatus.DRAFT,
@@ -963,14 +1033,16 @@ export class OrdersService {
 
   private assertOrderAllowsPaymentDecision(status: OrderStatus) {
     const blockedStatuses: OrderStatus[] = [
-      OrderStatus.CANCELED,
-      OrderStatus.COMPLETED,
+      OrderStatus.IN_PRODUCTION,
+      OrderStatus.READY_TO_SHIP,
       OrderStatus.SHIPPED,
+      OrderStatus.COMPLETED,
+      OrderStatus.CANCELED,
     ];
 
     if (blockedStatuses.includes(status)) {
       throw new BadRequestException(
-        'Nao e permitido decidir pagamento para pedidos cancelados, expedidos ou concluidos.',
+        'Nao e permitido decidir pagamento para pedidos que ja entraram no fluxo operacional final.',
       );
     }
   }
@@ -991,23 +1063,6 @@ export class OrdersService {
     }
   }
 
-  private assertProductionStartAllowed(
-    status: OrderStatus,
-    paymentStatus: PaymentStatus,
-  ) {
-    if (paymentStatus !== PaymentStatus.APPROVED) {
-      throw new BadRequestException(
-        'Nao e permitido iniciar producao sem pagamento aprovado.',
-      );
-    }
-
-    if (status !== OrderStatus.PAYMENT_APPROVED) {
-      throw new BadRequestException(
-        'A producao so pode ser iniciada para pedidos com status PAYMENT_APPROVED.',
-      );
-    }
-  }
-
   private assertProductionCompletionAllowed(
     status: OrderStatus,
     productionStartedAt: Date | null,
@@ -1021,6 +1076,57 @@ export class OrdersService {
     if (!productionStartedAt) {
       throw new BadRequestException(
         'Nao e permitido concluir producao sem registro de inicio.',
+      );
+    }
+  }
+
+  private assertShippingAllowed(
+    status: OrderStatus,
+    productionCompletedAt: Date | null,
+  ) {
+    if (status !== OrderStatus.READY_TO_SHIP) {
+      throw new BadRequestException(
+        'O pedido so pode ser expedido quando estiver em READY_TO_SHIP.',
+      );
+    }
+
+    if (!productionCompletedAt) {
+      throw new BadRequestException(
+        'Nao e permitido expedir pedido sem conclusao de producao registrada.',
+      );
+    }
+  }
+
+  private assertOrderCompletionAllowed(
+    status: OrderStatus,
+    shippedAt: Date | null,
+  ) {
+    if (status !== OrderStatus.SHIPPED) {
+      throw new BadRequestException(
+        'O pedido so pode ser concluido quando estiver em SHIPPED.',
+      );
+    }
+
+    if (!shippedAt) {
+      throw new BadRequestException(
+        'Nao e permitido concluir pedido sem expedicao registrada.',
+      );
+    }
+  }
+
+  private assertProductionStartAllowed(
+    status: OrderStatus,
+    paymentStatus: PaymentStatus,
+  ) {
+    if (paymentStatus !== PaymentStatus.APPROVED) {
+      throw new BadRequestException(
+        'Nao e permitido iniciar producao sem pagamento aprovado.',
+      );
+    }
+
+    if (status !== OrderStatus.PAYMENT_APPROVED) {
+      throw new BadRequestException(
+        'A producao so pode ser iniciada para pedidos com status PAYMENT_APPROVED.',
       );
     }
   }
@@ -1085,6 +1191,8 @@ export class OrdersService {
         paymentStatus: true,
         productionStartedAt: true,
         productionCompletedAt: true,
+        shippedAt: true,
+        completedAt: true,
       },
     });
 

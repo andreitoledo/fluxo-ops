@@ -99,13 +99,37 @@ function getPaymentStatusLabel(status: PaymentStatus) {
   }
 }
 
+function getAuditActionLabel(action: string) {
+  switch (action) {
+    case "PAYMENT_APPROVED":
+      return "Pagamento aprovado";
+    case "PAYMENT_REJECTED":
+      return "Pagamento rejeitado";
+    case "ORDER_PRODUCTION_STARTED":
+      return "Produção iniciada";
+    case "ORDER_PRODUCTION_COMPLETED":
+      return "Produção concluída";
+    case "ORDER_SHIPPED":
+      return "Pedido expedido";
+    case "ORDER_COMPLETED":
+      return "Pedido concluído";
+    default:
+      return action;
+  }
+}
+
 export function OrderDetailPage() {
   const { id } = useParams();
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
-  const [productionAction, setProductionAction] = useState<
-    "start" | "complete" | null
+  const [workflowAction, setWorkflowAction] = useState<
+    | "approvePayment"
+    | "rejectPayment"
+    | "startProduction"
+    | "completeProduction"
+    | "shipOrder"
+    | "completeOrder"
+    | null
   >(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -128,17 +152,24 @@ export function OrderDetailPage() {
     return user.role === "ADMIN" || user.role === "PRODUCTION";
   }, [user]);
 
+  const canManageOperationsRole = useMemo(() => {
+    if (!user) {
+      return false;
+    }
+
+    return user.role === "ADMIN" || user.role === "OPERATIONS";
+  }, [user]);
+
   const canApproveOrRejectPayment = useMemo(() => {
     if (!order || !canManagePaymentRole) {
       return false;
     }
 
-    const allowedStatus =
+    return (
       order.status === "DRAFT" ||
       order.status === "WAITING_PAYMENT" ||
-      order.status === "PAYMENT_APPROVED";
-
-    return allowedStatus;
+      order.status === "PAYMENT_APPROVED"
+    );
   }, [order, canManagePaymentRole]);
 
   const canStartProduction = useMemo(() => {
@@ -158,6 +189,27 @@ export function OrderDetailPage() {
 
     return order.status === "IN_PRODUCTION";
   }, [order, canManageProductionRole]);
+
+  const canShipOrder = useMemo(() => {
+    if (!order || !canManageOperationsRole) {
+      return false;
+    }
+
+    return order.status === "READY_TO_SHIP";
+  }, [order, canManageOperationsRole]);
+
+  const canCompleteOrder = useMemo(() => {
+    if (!order || !canManageOperationsRole) {
+      return false;
+    }
+
+    return order.status === "SHIPPED";
+  }, [order, canManageOperationsRole]);
+
+  const isBusy = workflowAction !== null;
+
+  const statusHistory = order?.statusHistory ?? [];
+  const auditLogs = order?.auditLogs ?? [];
 
   const loadOrder = async () => {
     if (!id) {
@@ -188,7 +240,7 @@ export function OrderDetailPage() {
       return;
     }
 
-    setIsSubmittingPayment(true);
+    setWorkflowAction("approvePayment");
     setErrorMessage(null);
     setSuccessMessage(null);
 
@@ -199,7 +251,7 @@ export function OrderDetailPage() {
     } catch (error) {
       setErrorMessage(extractApiErrorMessage(error));
     } finally {
-      setIsSubmittingPayment(false);
+      setWorkflowAction(null);
     }
   };
 
@@ -208,7 +260,7 @@ export function OrderDetailPage() {
       return;
     }
 
-    setIsSubmittingPayment(true);
+    setWorkflowAction("rejectPayment");
     setErrorMessage(null);
     setSuccessMessage(null);
 
@@ -219,7 +271,7 @@ export function OrderDetailPage() {
     } catch (error) {
       setErrorMessage(extractApiErrorMessage(error));
     } finally {
-      setIsSubmittingPayment(false);
+      setWorkflowAction(null);
     }
   };
 
@@ -228,7 +280,7 @@ export function OrderDetailPage() {
       return;
     }
 
-    setProductionAction("start");
+    setWorkflowAction("startProduction");
     setErrorMessage(null);
     setSuccessMessage(null);
 
@@ -239,7 +291,7 @@ export function OrderDetailPage() {
     } catch (error) {
       setErrorMessage(extractApiErrorMessage(error));
     } finally {
-      setProductionAction(null);
+      setWorkflowAction(null);
     }
   };
 
@@ -248,7 +300,7 @@ export function OrderDetailPage() {
       return;
     }
 
-    setProductionAction("complete");
+    setWorkflowAction("completeProduction");
     setErrorMessage(null);
     setSuccessMessage(null);
 
@@ -259,7 +311,47 @@ export function OrderDetailPage() {
     } catch (error) {
       setErrorMessage(extractApiErrorMessage(error));
     } finally {
-      setProductionAction(null);
+      setWorkflowAction(null);
+    }
+  };
+
+  const handleShipOrder = async () => {
+    if (!id) {
+      return;
+    }
+
+    setWorkflowAction("shipOrder");
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const updatedOrder = await ordersService.shipOrder(id);
+      setOrder(updatedOrder);
+      setSuccessMessage("Pedido expedido com sucesso.");
+    } catch (error) {
+      setErrorMessage(extractApiErrorMessage(error));
+    } finally {
+      setWorkflowAction(null);
+    }
+  };
+
+  const handleCompleteOrder = async () => {
+    if (!id) {
+      return;
+    }
+
+    setWorkflowAction("completeOrder");
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      const updatedOrder = await ordersService.completeOrder(id);
+      setOrder(updatedOrder);
+      setSuccessMessage("Pedido concluído com sucesso.");
+    } catch (error) {
+      setErrorMessage(extractApiErrorMessage(error));
+    } finally {
+      setWorkflowAction(null);
     }
   };
 
@@ -356,6 +448,20 @@ export function OrderDetailPage() {
               {formatDate(order.shippingDueDate)}
             </Typography>
             <Typography variant="body2">
+              <strong>Produção iniciada em:</strong>{" "}
+              {formatDateTime(order.productionStartedAt)}
+            </Typography>
+            <Typography variant="body2">
+              <strong>Produção concluída em:</strong>{" "}
+              {formatDateTime(order.productionCompletedAt)}
+            </Typography>
+            <Typography variant="body2">
+              <strong>Expedido em:</strong> {formatDateTime(order.shippedAt)}
+            </Typography>
+            <Typography variant="body2">
+              <strong>Concluído em:</strong> {formatDateTime(order.completedAt)}
+            </Typography>
+            <Typography variant="body2">
               <strong>Criado em:</strong> {formatDateTime(order.createdAt)}
             </Typography>
             <Typography variant="body2">
@@ -418,25 +524,19 @@ export function OrderDetailPage() {
                 <Button
                   variant="contained"
                   onClick={handleApprovePayment}
-                  disabled={
-                    !canApproveOrRejectPayment ||
-                    isSubmittingPayment ||
-                    productionAction !== null
-                  }
+                  disabled={!canApproveOrRejectPayment || isBusy}
                 >
-                  {isSubmittingPayment ? "Processando..." : "Aprovar pagamento"}
+                  {workflowAction === "approvePayment"
+                    ? "Processando..."
+                    : "Aprovar pagamento"}
                 </Button>
 
                 <Button
                   variant="outlined"
                   onClick={handleRejectPayment}
-                  disabled={
-                    !canApproveOrRejectPayment ||
-                    isSubmittingPayment ||
-                    productionAction !== null
-                  }
+                  disabled={!canApproveOrRejectPayment || isBusy}
                 >
-                  {isSubmittingPayment
+                  {workflowAction === "rejectPayment"
                     ? "Processando..."
                     : "Reprovar pagamento"}
                 </Button>
@@ -448,13 +548,9 @@ export function OrderDetailPage() {
                 <Button
                   variant="outlined"
                   onClick={handleStartProduction}
-                  disabled={
-                    !canStartProduction ||
-                    isSubmittingPayment ||
-                    productionAction !== null
-                  }
+                  disabled={!canStartProduction || isBusy}
                 >
-                  {productionAction === "start"
+                  {workflowAction === "startProduction"
                     ? "Processando..."
                     : "Iniciar produção"}
                 </Button>
@@ -462,28 +558,122 @@ export function OrderDetailPage() {
                 <Button
                   variant="outlined"
                   onClick={handleCompleteProduction}
-                  disabled={
-                    !canCompleteProduction ||
-                    isSubmittingPayment ||
-                    productionAction !== null
-                  }
+                  disabled={!canCompleteProduction || isBusy}
                 >
-                  {productionAction === "complete"
+                  {workflowAction === "completeProduction"
                     ? "Processando..."
                     : "Concluir produção"}
                 </Button>
               </>
             ) : null}
 
-            <Button variant="outlined" disabled>
-              Expedir pedido
-            </Button>
+            {canManageOperationsRole ? (
+              <>
+                <Button
+                  variant="outlined"
+                  onClick={handleShipOrder}
+                  disabled={!canShipOrder || isBusy}
+                >
+                  {workflowAction === "shipOrder"
+                    ? "Processando..."
+                    : "Expedir pedido"}
+                </Button>
+
+                <Button
+                  variant="outlined"
+                  onClick={handleCompleteOrder}
+                  disabled={!canCompleteOrder || isBusy}
+                >
+                  {workflowAction === "completeOrder"
+                    ? "Processando..."
+                    : "Concluir pedido"}
+                </Button>
+              </>
+            ) : null}
           </Stack>
 
           <Typography variant="caption" color="text.secondary">
-            Pagamento e produção já estão integrados ao backend. Expedição
-            permanece desabilitada até o próximo patch do workflow.
+            As ações são habilitadas conforme o perfil do usuário e o status
+            atual do pedido.
           </Typography>
+        </Stack>
+      </Paper>
+
+      <Paper sx={{ p: 3, borderRadius: 3 }}>
+        <Stack spacing={2}>
+          <Typography variant="h6" fontWeight={700}>
+            Histórico de status
+          </Typography>
+
+          {statusHistory.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              Nenhuma transição registrada até o momento.
+            </Typography>
+          ) : (
+            <Stack spacing={2}>
+              {statusHistory.map((entry) => (
+                <Paper
+                  key={entry.id}
+                  variant="outlined"
+                  sx={{ p: 2, borderRadius: 2 }}
+                >
+                  <Typography variant="subtitle2" fontWeight={700}>
+                    {entry.previousStatus
+                      ? `${getOrderStatusLabel(entry.previousStatus)} → ${getOrderStatusLabel(
+                          entry.newStatus,
+                        )}`
+                      : getOrderStatusLabel(entry.newStatus)}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Responsável: {entry.changedByUser?.name || "-"}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Em: {formatDateTime(entry.createdAt)}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Observação: {entry.note || "-"}
+                  </Typography>
+                </Paper>
+              ))}
+            </Stack>
+          )}
+        </Stack>
+      </Paper>
+
+      <Paper sx={{ p: 3, borderRadius: 3 }}>
+        <Stack spacing={2}>
+          <Typography variant="h6" fontWeight={700}>
+            Auditoria
+          </Typography>
+
+          {auditLogs.length === 0 ? (
+            <Typography variant="body2" color="text.secondary">
+              Nenhum evento de auditoria registrado até o momento.
+            </Typography>
+          ) : (
+            <Stack spacing={2}>
+              {auditLogs.map((entry) => (
+                <Paper
+                  key={entry.id}
+                  variant="outlined"
+                  sx={{ p: 2, borderRadius: 2 }}
+                >
+                  <Typography variant="subtitle2" fontWeight={700}>
+                    {getAuditActionLabel(entry.action)}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Descrição: {entry.description}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Usuário: {entry.user?.name || "-"}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Em: {formatDateTime(entry.createdAt)}
+                  </Typography>
+                </Paper>
+              ))}
+            </Stack>
+          )}
         </Stack>
       </Paper>
     </Stack>

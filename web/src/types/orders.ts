@@ -61,6 +61,51 @@ export interface PaymentApproval {
   updatedAt: string;
 }
 
+export type AuditEntityType =
+  | "USER"
+  | "CLIENT"
+  | "PRODUCT"
+  | "ORDER"
+  | "ORDER_ITEM"
+  | "PAYMENT_APPROVAL";
+
+export interface OrderStatusHistoryEntry {
+  id: string;
+  orderId: string;
+  previousStatus?: OrderStatus | null;
+  newStatus: OrderStatus;
+  changedByUserId: string;
+  note?: string | null;
+  createdAt: string;
+  changedByUser?: OrderUserSummary | null;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  entityType: AuditEntityType;
+  entityId: string;
+  action: string;
+  description: string;
+  userId?: string | null;
+  orderId?: string | null;
+  metadataJson?: unknown;
+  createdAt: string;
+  user?: OrderUserSummary | null;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  entityType: AuditEntityType;
+  entityId: string;
+  action: string;
+  description: string;
+  userId?: string | null;
+  orderId?: string | null;
+  metadataJson?: unknown;
+  createdAt: string;
+  user?: OrderUserSummary | null;
+}
+
 export interface OrderSummary {
   id: string;
   orderNumber: string;
@@ -95,6 +140,8 @@ export interface OrderDetail extends OrderSummary {
   client: OrderClientSummary;
   items: OrderItem[];
   paymentApproval?: PaymentApproval | null;
+  statusHistory?: OrderStatusHistoryEntry[];
+  auditLogs?: AuditLogEntry[];
 }
 
 export interface CreateOrderInput {
