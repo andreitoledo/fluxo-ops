@@ -58,6 +58,14 @@ export function AppLayout() {
               <Stack direction="row" spacing={1} flexWrap="wrap">
                 <Button
                   component={RouterLink}
+                  to="/dashboard"
+                  variant={getNavButtonVariant(location.pathname, "/dashboard")}
+                  color="inherit"
+                >
+                  Dashboard
+                </Button>
+                <Button
+                  component={RouterLink}
                   to="/orders"
                   variant={getNavButtonVariant(location.pathname, "/orders")}
                   color="inherit"

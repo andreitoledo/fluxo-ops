@@ -93,19 +93,6 @@ export interface AuditLogEntry {
   user?: OrderUserSummary | null;
 }
 
-export interface AuditLogEntry {
-  id: string;
-  entityType: AuditEntityType;
-  entityId: string;
-  action: string;
-  description: string;
-  userId?: string | null;
-  orderId?: string | null;
-  metadataJson?: unknown;
-  createdAt: string;
-  user?: OrderUserSummary | null;
-}
-
 export interface OrderSummary {
   id: string;
   orderNumber: string;
